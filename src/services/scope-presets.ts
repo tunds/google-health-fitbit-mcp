@@ -22,6 +22,8 @@ export const SCOPE_PRESETS = {
     "https://www.googleapis.com/auth/googlehealth.sleep.readonly"
   ],
   full: DEFAULT_SCOPES,
+  // Everything in "full" plus the nutrition write scope, so burn/sleep reads keep working.
+  "full-write": [...DEFAULT_SCOPES, GOOGLE_HEALTH_NUTRITION_WRITE_SCOPE],
   // Heart-safety preset: heart metrics plus the specialized ECG and irregular-rhythm scopes used
   // by google_health_get_irn_profile and the electrocardiogram data type. Still read-only.
   heart: [

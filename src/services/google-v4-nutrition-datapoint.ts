@@ -27,7 +27,7 @@
 import type { MealType, NutrientMap } from "./nutrition-normalize.js";
 
 // TO-VERIFY: exact kebab slug for the nutrition data type.
-export const NUTRITION_DATA_TYPE = "nutrition";
+export const NUTRITION_DATA_TYPE = "nutrition-log";
 
 export interface NutritionWriteInput {
   /** From STEP 5 (nutrition-normalize). */
@@ -102,4 +102,36 @@ export function buildNutritionDataPointBody(input: NutritionWriteInput): Record<
 
 function round(value: number): number {
   return Math.round((value + Number.EPSILON) * 1e6) / 1e6;
+}
+
+
+// VERIFIED against https://developers.google.com/health/data-types/nutrition :
+// POST /v4/users/me/dataTypes/nutrition-log/dataPoints, scope googlehealth.nutrition.writeonly,
+// body { nutritionLog: { interval, foodDisplayName, mealType, energy{kcal}, totalCarbohydrate{grams},
+// totalFat{grams}, nutrients[{nutrient, quantity{grams}}], serving{amount} } }.
+export interface NutritionLogInput {
+  food_name: string;
+  meal_type: "BREAKFAST" | "LUNCH" | "DINNER" | "SNACK";
+  calories_kcal: number;
+  protein_g?: number;
+  carbohydrates_g?: number;
+  fat_g?: number;
+  start_time: string; // RFC 3339 UTC
+  end_time: string;
+}
+
+export function buildNutritionLogBody(input: NutritionLogInput): Record<string, unknown> {
+  const nutritionLog: Record<string, unknown> = {
+    interval: { startTime: input.start_time, endTime: input.end_time },
+    foodDisplayName: input.food_name,
+    mealType: input.meal_type,
+    energy: { kcal: round(input.calories_kcal) },
+    serving: { amount: 1 }
+  };
+  if (typeof input.carbohydrates_g === "number") nutritionLog.totalCarbohydrate = { grams: round(input.carbohydrates_g) };
+  if (typeof input.fat_g === "number") nutritionLog.totalFat = { grams: round(input.fat_g) };
+  if (typeof input.protein_g === "number") {
+    nutritionLog.nutrients = [{ nutrient: "PROTEIN", quantity: { grams: round(input.protein_g) } }];
+  }
+  return { nutritionLog };
 }

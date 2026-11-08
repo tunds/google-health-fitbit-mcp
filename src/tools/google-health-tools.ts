@@ -53,6 +53,8 @@ import {
 } from "../services/profile-store.js";
 import { buildDailySummary, buildWeeklySummary, formatSummaryMarkdown } from "../services/summary.js";
 import { GoogleHealthClient } from "../services/google-health-client.js";
+import { buildNutritionLogBody } from "../services/google-v4-nutrition-datapoint.js";
+import { checkRemoteWriteGate, isLiveWriteAuthorized } from "../services/remote-write-gate.js";
 
 type PrivacyMode = "summary" | "structured" | "raw";
 type ResponseFormat = "markdown" | "json";
@@ -698,6 +700,65 @@ export function registerGoogleHealthTools(server: McpServer): void {
           missing_critical: payload.missing_critical,
           privacy_note: flow.privacy_note
         }));
+      } catch (error) {
+        return makeError((error as Error).message);
+      }
+    }
+  );
+
+  server.registerTool(
+    "google_health_log_nutrition",
+    {
+      title: "Log Nutrition",
+      description:
+        "Log one food/meal entry (name, meal, kcal, optional protein/carbs/fat) to the Google Health nutrition log (Fitbit food log). Opt-in WRITE: needs the nutrition.writeonly scope, explicit_user_intent=true, and dry_run=false to actually persist; dry_run defaults to true and only returns the request body. Confirm the values with the user before a live write. Logged entries cannot be edited later, only deleted and re-created.",
+      inputSchema: {
+        food_name: z.string().min(1).max(120).describe("Display name, e.g. 'Breakfast: eggs, streaky bacon, sausages, rice'."),
+        meal_type: z.enum(["BREAKFAST", "LUNCH", "DINNER", "SNACK"]),
+        calories_kcal: z.number().min(0).max(5000),
+        protein_g: z.number().min(0).max(500).optional(),
+        carbohydrates_g: z.number().min(0).max(1000).optional(),
+        fat_g: z.number().min(0).max(500).optional(),
+        start_time: z.string().optional().describe("RFC 3339 UTC start, e.g. 2026-11-08T08:30:00Z. Defaults to now."),
+        end_time: z.string().optional().describe("RFC 3339 UTC end. Defaults to start + 15 minutes."),
+        explicit_user_intent: z.boolean().optional(),
+        dry_run: z.boolean().default(true),
+        response_format: z.enum(["markdown", "json"]).default("markdown")
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+    },
+    async (params) => {
+      try {
+        const status = await buildConnectionStatus({});
+        const gateInput = {
+          explicit_user_intent: params.explicit_user_intent,
+          dry_run: params.dry_run,
+          granted_scopes: status.oauth.granted_scopes
+        };
+        const refusal = checkRemoteWriteGate(gateInput, { response_format: params.response_format, title: "Log Nutrition" });
+        if (refusal) return refusal;
+        const start = params.start_time ? new Date(params.start_time) : new Date();
+        const end = params.end_time ? new Date(params.end_time) : new Date(start.getTime() + 15 * 60 * 1000);
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+          return makeError("start_time/end_time must be valid RFC 3339 timestamps with end after start.");
+        }
+        const body = buildNutritionLogBody({
+          food_name: params.food_name,
+          meal_type: params.meal_type,
+          calories_kcal: params.calories_kcal,
+          protein_g: params.protein_g,
+          carbohydrates_g: params.carbohydrates_g,
+          fat_g: params.fat_g,
+          start_time: start.toISOString(),
+          end_time: end.toISOString()
+        });
+        if (!isLiveWriteAuthorized(gateInput)) {
+          return makeResponse({ ok: true, dry_run: true, request_body: body }, params.response_format,
+            bulletList("Log Nutrition (dry run, nothing written)", { request_body: JSON.stringify(body) }));
+        }
+        const created = await client().createNutritionDataPoint(body);
+        return makeResponse({ ok: true, dry_run: false, created }, params.response_format,
+          bulletList("Nutrition Logged", { food: params.food_name, kcal: params.calories_kcal }));
       } catch (error) {
         return makeError((error as Error).message);
       }
