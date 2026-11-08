@@ -120,13 +120,16 @@ export interface NutritionLogInput {
   end_time: string;
 }
 
+const SERVING_UNIT = "users/me/dataTypes/food-measurement-unit/dataPoints/304";
+
 export function buildNutritionLogBody(input: NutritionLogInput): Record<string, unknown> {
   const nutritionLog: Record<string, unknown> = {
     interval: { startTime: input.start_time, endTime: input.end_time },
     foodDisplayName: input.food_name,
     mealType: input.meal_type,
     energy: { kcal: round(input.calories_kcal) },
-    serving: { amount: 1 }
+    // Google requires serving.foodMeasurementUnit; data point 304 in food-measurement-unit is "serving".
+    serving: { amount: 1, foodMeasurementUnit: SERVING_UNIT }
   };
   if (typeof input.carbohydrates_g === "number") nutritionLog.totalCarbohydrate = { grams: round(input.carbohydrates_g) };
   if (typeof input.fat_g === "number") nutritionLog.totalFat = { grams: round(input.fat_g) };
