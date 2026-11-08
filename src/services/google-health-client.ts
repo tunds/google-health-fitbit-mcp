@@ -163,6 +163,12 @@ export class GoogleHealthClient {
     return this.post(`/v4/users/me/dataTypes/${encodeDataType(NUTRITION_DATA_TYPE)}/dataPoints`, body);
   }
 
+  // Deletes nutrition-log data points via the documented :batchDelete custom method
+  // (POST /v4/users/me/dataTypes/nutrition-log/dataPoints:batchDelete, body { names: [...] }).
+  async deleteNutritionDataPoints(names: string[]): Promise<unknown> {
+    return this.post(`/v4/users/me/dataTypes/${encodeDataType(NUTRITION_DATA_TYPE)}/dataPoints:batchDelete`, { names });
+  }
+
   async revokeAccess(): Promise<{ ok: true; token_path: string; local_tokens_cleared: boolean }> {
     const token = await this.getValidToken();
     const response = await this.fetchWithRetry(GOOGLE_HEALTH_REVOKE_URL, {

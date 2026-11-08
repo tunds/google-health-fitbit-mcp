@@ -765,6 +765,45 @@ export function registerGoogleHealthTools(server: McpServer): void {
     }
   );
 
+  server.registerTool(
+    "google_health_delete_nutrition_log",
+    {
+      title: "Delete Nutrition Log Entries",
+      description:
+        "Delete specific nutrition-log entries (Fitbit food log) by resource name, e.g. users/<id>/dataTypes/nutrition-log/dataPoints/<id>. Opt-in WRITE: needs the nutrition.writeonly scope, explicit_user_intent=true and dry_run=false to actually delete; dry_run defaults to true. Only nutrition-log names are accepted, max 5 per call. Deletion is permanent, so confirm the exact entries with the user first.",
+      inputSchema: {
+        names: z.array(z.string()).min(1).max(5).describe("Full data point names from google_health_list_data_points (nutrition-log)."),
+        explicit_user_intent: z.boolean().optional(),
+        dry_run: z.boolean().default(true),
+        response_format: z.enum(["markdown", "json"]).default("markdown")
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true }
+    },
+    async (params) => {
+      try {
+        const bad = params.names.filter((n) => !/^users\/[^/]+\/dataTypes\/nutrition-log\/dataPoints\/[A-Za-z0-9_-]+$/.test(n));
+        if (bad.length > 0) return makeError("Only nutrition-log data point names are accepted: " + bad.join(", "));
+        const status = await buildConnectionStatus({});
+        const gateInput = {
+          explicit_user_intent: params.explicit_user_intent,
+          dry_run: params.dry_run,
+          granted_scopes: status.oauth.granted_scopes
+        };
+        const refusal = checkRemoteWriteGate(gateInput, { response_format: params.response_format, title: "Delete Nutrition Log" });
+        if (refusal) return refusal;
+        if (!isLiveWriteAuthorized(gateInput)) {
+          return makeResponse({ ok: true, dry_run: true, would_delete: params.names }, params.response_format,
+            bulletList("Delete Nutrition Log (dry run, nothing deleted)", { would_delete: params.names.join(", ") }));
+        }
+        const result = await client().deleteNutritionDataPoints(params.names);
+        return makeResponse({ ok: true, dry_run: false, deleted: params.names, result }, params.response_format,
+          bulletList("Nutrition Log Deleted", { deleted: params.names.join(", ") }));
+      } catch (error) {
+        return makeError((error as Error).message);
+      }
+    }
+  );
+
   // The planned log_nutrition WRITE tool registers here. It is intentionally not shipped yet; the
   // supporting rails (input schema, write gate, nutrient normalizer, DataPoint builder, client
   // method) already exist. See CONTRIBUTING.md → "Planned: nutrition write" for the wiring plan and
